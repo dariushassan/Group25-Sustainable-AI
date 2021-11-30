@@ -15,69 +15,6 @@ import matplotlib.pyplot as plt
 import time
 import pickle
 
-'''
-# open extracted dataset
-f = h5py.File("./2018.01/GOLD_XYZ_OSC.0001_1024.hdf5", "r")
-dir_path = "./extractdataset"
-modu_snr_size = 1200
-
-# assign data
-for modu in range(24):
-  X_list = []
-  Y_list = []
-  Z_list = []
-  start_modu = modu * 106496
-  for snr in range(26):
-    start_snr = start_modu + (snr * 4096)
-    idx_list = np.random.choice(range(0, 4096), size=modu_snr_size, replace=False)
-    Xd = f['X'][start_snr:start_snr+4096][idx_list]
-    X_list.append(Xd)
-    Y_list.append(f['Y'][start_snr:start_snr+4096][idx_list])
-    Z_list.append(f['Z'][start_snr:start_snr+4096][idx_list])
-
-  filename = dir_path + '/part' + str(modu) + '.h5'
-  fw = h5py.File(filename, 'w')
-  fw['X'] = np.vstack(X_list)
-  fw['Y'] = np.vstack(Y_list)
-  fw['Z'] = np.vstack(Z_list)
-  fw.close()
-
-# close file
-f.close()
-
-'''
-'''
-print("Loading dataset...")
-for i in range(0, 24):
-  filename = "./extractdataset/part" + str(i) + ".h5"
-  f = h5py.File(filename, "r")
-  X = f["X"][:]
-  Y = f["Y"][:]
-  Z = f["Z"][:]
-  f.close()
-
-  # split data into train/test
-  n_examples = X.shape[0]
-  n_train = int(n_examples * 0.7)
-  train_idx = np.random.choice(range(0,n_examples), size=n_train, replace=False)
-  test_idx = list(set(range(0,n_examples)) - set(train_idx))
-  if i == 0:
-    X_train = X[train_idx]
-    Y_train = Y[train_idx]
-    Z_train = Z[train_idx]
-    X_test = X[test_idx]
-    Y_test = Y[test_idx]
-    Z_test = Z[test_idx]
-
-  # assign split
-  X_train = np.vstack((X_train, X[train_idx]))
-  Y_train = np.vstack((Y_train, Y[train_idx]))
-  Z_train = np.vstack((Z_train, Z[train_idx]))
-  X_test = np.vstack((X_test, X[test_idx]))
-  Y_test = np.vstack((Y_test, Y[test_idx]))
-  Z_test = np.vstack((Z_test, Z[test_idx]))
-print("Done loading dataset")
-'''
 
 def gendata(fp, nsamples):
     global snrs, mods, train_idx, test_idx, lbl
