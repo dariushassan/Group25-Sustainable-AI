@@ -98,20 +98,6 @@ train_snr = lambda snr: xtrain1[np.where(np.array(train_SNRs)==snr)]
 test_snr = lambda snr: ytrain1[np.where(np.array(train_SNRs)==snr)]
 classes = mods
 
-'''
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`
-#SNR Selection
-
-#snr pairs selection
-#change the snr values correspondingly
-X_train_i = train_snr(18)
-Y_train_i = test_snr(18)
-
-X_train = np.append(X_train_i, train_snr(0),axis=0)
-Y_train = np.append(Y_train_i, test_snr(0),axis=0)
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-'''
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Conversion to amp-phase form ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 print('length of X before to_amp_phase:', xtrain1.shape)
 xtrain1,xtest1 = to_amp_phase(xtrain1,xtest1,maxlen)
@@ -128,62 +114,6 @@ xtest1 = norm_pad_zeros(xtest1,maxlen)
 X_train = np.reshape(xtrain1, (-1,2,128))
 X_test = np.reshape(xtest1, (-1,2,128))
 
-#X_train = xtrain1
-#X_test = xtest1
-
-'''
-x_train = []
-x_test = []
-temp_train_dup = []
-
-for i in range(X_train.shape[0]):
-    temp_train = []
-    temp_test = []
-    temp_train_dup = []
-    temp_test_dup = []
-    temp_train2 = []
-    temp_test2 = []
-
-    for j in range(X_train.shape[1]):
-        split_train = list(X_train[i, j, :64])
-        split_test = list(X_test[i, j, :64])
-        temp_train += split_train
-        temp_test += split_test
-
-    temp_train_left = temp_train[:64]
-    temp_train_right = temp_train[64:]
-    temp_test_left = temp_test[:64]
-    temp_test_right = temp_test[64:]
-
-    for i in range(len(temp_train_left)):
-        temp_train2.append(temp_train_left[i])
-        temp_train2.append(temp_train_right[i])
-        temp_test2.append(temp_test_left[i])
-        temp_test2.append(temp_test_right[i])
-    
-    temp_train_dup.append(temp_train2)
-    temp_train_dup.append(temp_train2)
-    temp_test_dup.append(temp_test2)
-    temp_test_dup.append(temp_test2)
-    x_train.append(temp_train_dup)
-    x_test.append(temp_test_dup)
-
-
-x_train = np.asarray(x_train)
-x_test = np.asarray(x_test)
-print(x_train.shape)
-print(x_test.shape)
-
-print(x_train[0])
-'''
-
-#X_train = np.reshape(xtrain1, (-1, 256))
-#X_test = np.reshape(xtest1, (-1, 256))
-
-
-#print(len(xtrain1.ravel()))
-
-#print(X_train[0])
 
 Y_train = np.reshape(ytrain1,(-1,10))
 Y_test = np.reshape(ytest1,(-1,10))
