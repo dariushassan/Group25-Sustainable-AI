@@ -1,6 +1,11 @@
+#For Individual SNR Training experiments: Uncomment 'SNR Setup' and 'SNR Training' code blocks
+
+# In[1]:
+# Import required modules
 import gc
 import tarfile
 import numpy as np
+from numpy import linalg as la
 import h5py
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D, LSTM, Input, AlphaDropout, Activation, Reshape, Input
@@ -9,143 +14,223 @@ import tensorflow.keras.models as Model
 from tensorflow.keras.regularizers import *
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.initializers import GlorotUniform, HeNormal
-import seaborn as sns
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import time
+from sklearn.metrics import confusion_matrix
+import matplotlib
+matplotlib.use('Agg')
 import pickle
+import sys
+import operator
+from numpy import linalg as la
+from math import ceil
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SNR Setup
+"""snr_val = -20   # SNR Value to train using"""
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-def gendata(fp, nsamples):
-    global snrs, mods, train_idx, test_idx, lbl
-    with open(fp, 'rb') as p:
-        Xd = pickle.load(p, encoding='latin1')
-    snrs,mods = map(lambda j: sorted(list(set(map(lambda x: x[j], Xd.keys())))), [1,0])
-    X = []  
-    lbl = []
-    print(mods, snrs)
-    for mod in mods:
-        for snr in snrs:
-            X.append(Xd[(mod,snr)])
-            for i in range(Xd[(mod,snr)].shape[0]):
-                lbl.append((mod,snr))
-    X = np.vstack(X)
-    
-    print('Length of lbl', len(lbl))
-    print('shape of X', X.shape)
+# In[2]:
+# data pre-processing
+with open("./data/RML2016.10b.dat", "rb") as p:
+    Xd = pickle.load(p, encoding='latin1')
+snrs,mods = map(lambda j: sorted(list(set(map(lambda x: x[j], Xd.keys())))), [1,0])
+print("length of snr",len(snrs))
+print("length of mods",len(mods))
+X = [] 
+lbl = []
+for mod in mods:
+    for snr in snrs:
+        X.append(Xd[(mod,snr)])
+        for i in range(Xd[(mod,snr)].shape[0]):  lbl.append((mod,snr))
+X = np.vstack(X)
+print("shape of X", np.shape(X))
 
-    np.random.seed(2016)
-    n_examples = X.shape[0]
-    n_train = n_examples//2
-    train_idx = np.random.choice(range(0,n_examples), size=n_train, replace=False)
-    test_idx = list(set(range(0,n_examples))-set(train_idx))
-    X_train = X[train_idx]
-    X_test =  X[test_idx]
-    keys = Xd.keys()
-    def to_onehot(yy):
-        yy1 = np.zeros([len(yy), max(yy)+1])
-        yy1[np.arange(len(yy)),yy] = 1
-        return yy1
-    Y_train = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), train_idx)))
-    Y_test = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), test_idx)))
+# In[3]:
+# Partition the dataset into training and testing datasets
+np.random.seed(2016)     # Random seed value for the partitioning (Also used for random subsampling)
+n_examples = X.shape[0]
+n_train = n_examples // 2
+train_idx = np.random.choice(range(0,n_examples), size=n_train, replace=False)
+test_idx = list(set(range(0,n_examples))-set(train_idx))
+X_train = X[train_idx]
+X_test =  X[test_idx]
+def to_onehot(yy):
+    yy1 = np.zeros([len(yy), max(yy)+1])
+    yy1[np.arange(len(yy)),yy] = 1
+    return yy1
+Y_train = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), train_idx)))
+Y_test = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), test_idx)))
 
-    return (X_train,X_test,Y_train,Y_test)
- 
-maxlen = 128
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SNR Training
+"""X_train = []
+Y_train = []
+X_train_SNR_idx = []
+X_train_SNR = map(lambda x: lbl[x][1], train_idx)
+for train_snr, train_index in zip(X_train_SNR, train_idx):
+    if train_snr == snr_val:
+        X_train_SNR_idx.append(train_index)
+X_train = X[X_train_SNR_idx]
+Y_train = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), X_train_SNR_idx)))"""
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   
-X_train, X_test, Y_train, Y_test = gendata("./data/RML2016.10b.dat",maxlen)
-print('using version 10b dataset')
-print(xtrain1.shape)
-test_SNRs = map(lambda x: lbl[x][1], test_idx)
-train_SNRs = map(lambda x: lbl[x][1], train_idx)
-train_snr = lambda snr: xtrain1[np.where(np.array(train_SNRs)==snr)]
-test_snr = lambda snr: ytrain1[np.where(np.array(train_SNRs)==snr)]
+# In[4]:
+print('training started')
+in_shp = list(X_train.shape[1:])
+print(X_train.shape, in_shp)
 classes = mods
 
-print("--"*50)
-print("Training data:",X_train.shape)
-print("Training labels:",Y_train.shape)
-print("Testing data",X_test.shape)
-print("Testing labels",Y_test.shape)
-print("--"*50)
-
-# residual stack
-def res_stack(x, filters, kernel_size, pool_size):
-  # 1x1 Conv Linear
-  x = Conv2D(filters, (1, 1), padding="same", kernel_initializer="glorot_normal", data_format="channels_first")(x)
-  # res unit 1
-  x_skip = x
-  x = Conv2D(filters, kernel_size, padding="same", activation="relu", kernel_initializer="glorot_uniform", data_format="channels_first")(x)
-  x = Conv2D(filters, kernel_size, padding="same", kernel_initializer="glorot_normal", data_format="channels_first")(x)
-  x = layers.add([x, x_skip])
-  x = Activation("relu")(x)
-  # res unit 2
-  x_skip = x
-  x = Conv2D(filters, kernel_size, padding="same", activation="relu", kernel_initializer="glorot_normal", data_format="channels_first")(x)
-  x = layers.add([x, x_skip])
-  x = Activation("relu")(x)
-  # max pooling
-  x = MaxPooling2D(pool_size=pool_size, strides=pool_size, padding="valid", data_format="channels_first")(x)
+# Resnet Architecture
+def residual_stack(x):
+  def residual_unit(y,_strides=1):
+    shortcut_unit=y
+    # 1x1 conv linear
+    y = layers.Conv1D(32, kernel_size=5,data_format='channels_first',strides=_strides,padding='same',activation='relu')(y)
+    y = layers.BatchNormalization()(y)
+    y = layers.Conv1D(32, kernel_size=5,data_format='channels_first',strides=_strides,padding='same',activation='linear')(y)
+    y = layers.BatchNormalization()(y)
+    # add batch normalization
+    y = layers.add([shortcut_unit,y])
+    return y
+  
+  x = layers.Conv1D(32, data_format='channels_first',kernel_size=1, padding='same',activation='linear')(x)
+  x = layers.BatchNormalization()(x)
+  x = residual_unit(x)
+  x = residual_unit(x)
+  # maxpool for down sampling
+  x = layers.MaxPooling1D(data_format='channels_first')(x)
   return x
 
-# residual network
-def ResNet(X_input, in_shp):
-  # input
-  x = Reshape([1,128,2], input_shape=in_shp)(X_input)
-  # res stack
-  x = res_stack(x, filters=32, kernel_size=(3,2), pool_size=(2,2))
-  x = res_stack(x, filters=32, kernel_size=(3,1), pool_size=(2,1))
-  x = res_stack(x, filters=32, kernel_size=(3,1), pool_size=(2,1))
-  x = res_stack(x, filters=32, kernel_size=(3,1), pool_size=(2,1))
-  x = res_stack(x, filters=32, kernel_size=(3,1), pool_size=(2,1))
-  x = res_stack(x, filters=32, kernel_size=(3,1), pool_size=(2,1))
-  # fc/selu
-  x = Flatten(data_format="channels_first")(x)
-  x = Dense(128, activation="selu", kernel_initializer="glorot_normal")(x)
-  x = AlphaDropout(0.3)(x)
-  # fc/softmax
-  x = Dense(len(classes), kernel_initializer="glorot_normal")(x)
-  x = Activation("softmax")(x)
-  return x
+inputs=layers.Input(shape=in_shp)
+x = residual_stack(inputs)  # output shape (32,64)
+x = residual_stack(x)    # out shape (32,32)
+x = residual_stack(x)    # out shape (32,16)    # Comment this when the input dimensions are 1/32 or lower
+x = residual_stack(x)    # out shape (32,8)     # Comment this when the input dimensions are 1/16 or lower
+x = residual_stack(x)    # out shape (32,4)     # Comment this when the input dimensions are 1/8 or lower
+x = Flatten()(x)
+x = Dense(128,kernel_initializer="he_normal", activation="selu", name="dense1")(x)
+x = AlphaDropout(0.1)(x)
+x = Dense(128,kernel_initializer="he_normal", activation="selu", name="dense2")(x)
+x = AlphaDropout(0.1)(x)
+x = Dense(len(classes),kernel_initializer="he_normal", activation="softmax", name="dense3")(x)
+x_out = Reshape([len(classes)])(x)
+model = tf.keras.models.Model(inputs=inputs, outputs=x_out)
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+model.summary()
+# Set up some params 
+nb_epoch = 500     # number of epochs to train on
+batch_size = 1024  # training batch size
 
-# start training
-in_shp = X_train.shape[1:]
-X_input = Input(in_shp)
-x = ResNet(X_input, in_shp)
-model = Model.Model(inputs=X_input, outputs=x)
-filepath = "./models/res_72w_wts_16.h5"
-
+# In[7]:
+# Train the Model
+# perform training ...
+#   - call the main training loop in keras for our network+dataset
+filepath = './models/nopca/resnet_10b_nopca_wts.h5'
 model.compile(loss=tf.keras.losses.categorical_crossentropy,
               optimizer=tf.keras.optimizers.Adam(lr=0.001),
-              metrics=["accuracy"])
-model.summary()
+              metrics=['accuracy'])
 
-print("Starting training...")
 start = time.time()
 history = model.fit(X_train,
-  Y_train,
-  batch_size=1000,
-  epochs=100,
-  verbose=2,
-  validation_data=(X_test, Y_test),
-  callbacks = [
-    tf.keras.callbacks.ModelCheckpoint(filepath, monitor="val_loss", save_best_only=True, mode="auto"),
-    tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=15, mode="auto")
-  ])
-
+    Y_train,
+    batch_size=batch_size,
+    epochs=nb_epoch,
+    verbose=2,
+    validation_split=0.25,
+    callbacks = [
+        tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss', verbose=0, save_best_only=True, mode='auto'),
+        tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15, verbose=0, mode='auto')
+    ])
 end = time.time()
-print("Done training")
 print(end - start)
 
-# save model
-model.save("./models/res_72w_16.h5")
+# we re-load the best weights once training is finished
 model.load_weights(filepath)
+model.save('./models/nopca/resnet_10b_nopca.h5')
 
-# loss curves
+# In[8]:
+# Evaluate and Plot Model Performance
+# Show simple version of performance
+score = model.evaluate(X_test, Y_test, batch_size=batch_size, verbose=0)
+print(score)
+
+#In[9]:
+# Show loss curves 
 plt.figure()
-plt.title("Training performance")
-plt.plot(history.epoch, history.history["loss"], label="train loss+error")
-plt.plot(history.epoch, history.history["val_loss"], label="val_error")
+plt.title('Training performance')
+plt.plot(history.epoch, history.history['loss'], label='train loss+error')
+plt.plot(history.epoch, history.history['val_loss'], label='val_error')
 plt.legend()
-plt.savefig("./train_perf_res72w.png", dpi=100)
+plt.savefig('./results/nopca/Train_perf.png', dpi=100)	#save image
+
+
+# In[10]:
+def plot_confusion_matrix(cm, title='Confusion matrix', cmap=plt.cm.Blues, labels=[]):
+    plt.figure()
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(labels))
+    plt.xticks(tick_marks, labels, rotation=45)
+    plt.yticks(tick_marks, labels)
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.savefig('./results/nopca/conf_mat.png', dpi=100)	#save image    
+
+# In[11]:
+# Plot confusion matrix
+test_Y_hat = model.predict(X_test, batch_size=batch_size)
+conf = np.zeros([len(classes),len(classes)])
+confnorm = np.zeros([len(classes),len(classes)])
+for i in range(0,X_test.shape[0]):
+    j = list(Y_test[i,:]).index(1)
+    k = int(np.argmax(test_Y_hat[i,:]))
+    conf[j,k] = conf[j,k] + 1
+for i in range(0,len(classes)):
+    confnorm[i,:] = conf[i,:] / np.sum(conf[i,:])
+plot_confusion_matrix(confnorm, labels=classes)
+
+# In[12]:
+# Plot confusion matrix
+acc = {}
+for snr in snrs:
+    # extract classes @ SNR
+    test_SNRs = list(map(lambda x: lbl[x][1], test_idx))
+    test_X_i = X_test[np.where(np.array(test_SNRs)==snr)]
+    test_Y_i = Y_test[np.where(np.array(test_SNRs)==snr)]    
+    print(test_X_i.shape[0])
+
+    # estimate classes
+    test_Y_i_hat = model.predict(test_X_i)
+    conf = np.zeros([len(classes),len(classes)])
+    confnorm = np.zeros([len(classes),len(classes)])
+    for i in range(0,test_X_i.shape[0]):
+        j = list(test_Y_i[i,:]).index(1)
+        k = int(np.argmax(test_Y_i_hat[i,:]))
+        conf[j,k] = conf[j,k] + 1
+    for i in range(0,len(classes)):
+        confnorm[i,:] = conf[i,:] / np.sum(conf[i,:])
+    #plt.figure()
+    #plot_confusion_matrix(confnorm, labels=classes, title="ConvNet Confusion Matrix (SNR=%d)"%(snr))
+    cor = np.sum(np.diag(conf))
+    ncor = np.sum(conf) - cor
+    print("Overall Accuracy for SNR = " + str(snr) + ": ", cor / (cor+ncor))
+    acc[snr] = 1.0*cor/(cor+ncor)
+
+# In[13]:
+# Save results to a pickle file for plotting later
+print(acc)
+with open('./results/nopca/results_resnet_10b.pkl','wb') as fd:
+    pickle.dump(acc,fd)
+
+# In[14]:
+# Plot accuracy curve
+plt.figure()
+plt.plot(snrs, list(map(lambda x: acc[x], snrs)))
+plt.xlabel("Signal to Noise Ratio")
+plt.ylabel("Classification Accuracy")
+plt.title("ResNet Classification Accuracy - No PCA")
+plt.savefig('./results/nopca/Acc_curve.png', dpi=100)	#save image
